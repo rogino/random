@@ -1,5 +1,5 @@
 /*
-This tool deletes RAW files that haven't been edited. This is guessed through the presence of a XMP sidecar file produced by Lightroom or a similar program. 
+This tool deletes RAW (and XMP) files that haven't been edited. This is guessed through the presence of a XMP sidecar file produced by Lightroom or a similar program. 
 This may fail on systems with case-sensitive file systems
 */
 
@@ -15,7 +15,7 @@ const jpgExt = ".jpg";
 const jpegExt = ".jpeg";
 const xmpExt = ".xmp";
 
-let filesToDelete, allFiles, unreadDirectories, deletionType;
+let filesToDelete, allFiles, unreadDirectories, deletionTypes;
 filesToDelete = [];
 allFiles = [];
 
@@ -42,16 +42,18 @@ let fileMatchesExtensionWhitelist = (p, extArr) => {
   return extArr.some(e => e == ext);
 }
 
-// Finds the total file size of files marked for deletion
+//Finds the total file size of files marked for deletion
 let findTotalFileSize = () => filesToDelete.reduce((prev, curr) => prev + fs.statSync(curr).size, 0);
 
-//For an array of files, it marks files for deletion
+//Parameters under which a CR2 and XMP file is deleted. This converts the booleans into a integer which is easier to compare
+let genCode = (xmp, jpg) => (xmp?2:0) + (jpg?1:0);
+
+//For an array of files, files are marked for deletion
 let findFilesToDelete = files => {
   let raw = filterByExtension(files, rawExt);
   let jpg = new Set(filterByExtension(files, jpgExt));
   let jpeg = new Set(filterByExtension(files, jpegExt));
   let xmp = new Set(filterByExtension(files, xmpExt));
-
 
   let numRAWToDelete = 0;
   let numXMPToDelete = 0;
@@ -64,50 +66,26 @@ let findFilesToDelete = files => {
 
     let xmpF = changeExtension(p, xmpExt);
     let xmpFound = xmp.has(xmpF);
+    
+    let code = genCode(xmpFound, jpgFound || jpegFound);
 
-
-    /*
-    deletionType: 0
-      CR2: deleted
-      CR2, XMP: not deleted
-      CR2, XMP, JPG: not deleted
-      CR2, JPG: not deleted
-
-    deletionType: 1
-      CR2: deleted
-      CR2, XMP: deleted
-      CR2, XMP, JPG: not deleted
-      CR2, JPG: not deleted
-    */
-    switch (deletionType) {
-      case 0:
-        if (!(xmpFound || jpgFound)) {
-          filesToDelete.push(p);
-          numRAWToDelete++;
-        }
-        break;
-      case 1:
-        if (!(jpegFound || jpgFound)) {
-          //Delete if no jpeg found
-          filesToDelete.push(p);
-          numRAWToDelete++;
-
-          if (xmpFound) {
-            //If xmp found, delete that too
-            filesToDelete.push(xmpF);
-            numXMPToDelete++;
-          }
-        }
-        break;
+    if (deletionTypes.indexOf(code) != -1) {
+      //One of the options the user selected matches the code for the current file, so delete
+      filesToDelete.push(p);
+      numRAWToDelete++;
+      if (xmpFound) {
+        filesToDelete.push(xmpF);
+        numXMPToDelete++;
+      }
     }
+
   });
   if (numRAWToDelete) console.log(`${numRAWToDelete} out of ${raw.length} RAW files marked for deletion`); //Don't print if none found 
   if (numXMPToDelete) console.log(`${numXMPToDelete} out of ${xmp.size} XMP files marked for deletion`);
 }
 
 
-
-console.log("This tool deletes RAW files that don't have associated XMP sidecar files of the same name (in the same directory)");
+console.log("This tool deletes RAW files that don't have associated XMP sidecar files of the same name in the same directory");
 inquirer.prompt([
   {
     type: "input",
@@ -116,33 +94,43 @@ inquirer.prompt([
     validate: dir => fs.existsSync(dir)?true: "Could not find the given directory"
   },
   {
-    type: "list",
-    name: "deletionType",
-    message: "If these files exist",
+    type: "checkbox",
+    name: "deletionTypes",
+    message: "Delete RAW and XMP files on the following cases",
     choices: [{
-      name: `
-CR2: deleted
-CR2, XMP: not deleted
-CR2, XMP, JPG: not deleted
-CR2, JPG: not deleted`,
-      value: 0
-     }, {
-       name: `
-CR2: deleted
-CR2, XMP: deleted
-CR2, XMP, JPG: not deleted
-CR2, JPG: not deleted`,
-      value: 1
-     }]
+      name: "RAW only",
+      value: genCode(0,0),
+      checked: true
+    }, {
+      name: "RAW and XMP but no JPEG",
+      value: genCode(1,0),
+      checked: false
+    }, {
+      name: "RAW, XMP and JPEG files all exist",
+      value: genCode(1,1),
+      checked: false
+    }, {
+      name: "RAW and JPG but no XMP",
+      value: genCode(0,1),
+      checked: false
+    }]
   }
 ]).then(answers => {
   unreadDirectories = [answers.baseDirectory]; //Start off with one directory to search
-  deletionType = answers.deletionType;
+  deletionTypes = answers.deletionTypes;
+
+
+
+
+  // console.log(deletionTypes);
   
+
+
+
   let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
   console.time(labelSearchTime);
   while (unreadDirectories.length) {
-    console.log(`Reading directory ${unreadDirectories[0]}. ${unreadDirectories.length} director${unreadDirectories.length == 1 ? "y" : "ies"} to search remaining`);
+    console.log(`Reading directory ${unreadDirectories[0]}. ${unreadDirectories.length} discovered, unsearched director${unreadDirectories.length == 1 ? "y" : "ies"} remaining`);
     let files = [];
     fs.readdirSync(unreadDirectories[0]).forEach(p => {
       p = path.join(unreadDirectories[0], p);
@@ -170,10 +158,19 @@ CR2, JPG: not deleted`,
   
   `);
 
+
+
+
+  // console.log(filesToDelete);
+
+
+
+
+
   console.time(labelSumFileSizes);
   let sum = findTotalFileSize();
   console.timeEnd(labelSumFileSizes);
-  console.log(`Total size of all files marked for deletion: ${sum} bytes / ${Math.round(sum / 1024)}KB / ${Math.round(sum / (1024 * 1024))}MB / ${Math.round(sum / (Math.pow(1024, 3)))}GB`);
+  console.log(`Total size of all files marked for deletion: ${sum} bytes / ${Math.round(sum / 1024)}KB / ${Math.round(sum / (Math.pow(1024, 2)))}MB / ${Math.round(sum / (Math.pow(1024, 3)))}GB`);
 
 }).then(() => inquirer.prompt([
   {
