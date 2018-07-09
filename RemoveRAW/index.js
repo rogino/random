@@ -15,9 +15,12 @@ const jpgExt = ".jpg";
 const jpegExt = ".jpeg";
 const xmpExt = ".xmp";
 
-let filesToDelete, allFiles, unreadDirectories, deletionTypes;
+let filesToDelete, allFiles, unreadDirectories, baseDirectory, deletionTypes;
 filesToDelete = [];
 allFiles = [];
+
+let overviewOfDeletions = []; //Array of objects with directory name, number of XMP and number RAW files to be deleted
+
 
 const labelSearchTime = "Time-taken-to-search-through-directory";
 const labelSumFileSizes = "Time-taken-to-find-total-size-of-files-to-delete";
@@ -80,8 +83,13 @@ let findFilesToDelete = files => {
     }
 
   });
-  if (numRAWToDelete) console.log(`${numRAWToDelete} out of ${raw.length} RAW files marked for deletion`); //Don't print if none found 
-  if (numXMPToDelete) console.log(`${numXMPToDelete} out of ${xmp.size} XMP files marked for deletion`);
+
+  return {
+    raw: raw.length,
+    rawDelete: numRAWToDelete,
+    xmp: xmp.size,
+    xmpDelete: numXMPToDelete 
+  };
 }
 
 
@@ -116,24 +124,23 @@ inquirer.prompt([
     }]
   }
 ]).then(answers => {
+  baseDirectory = answers.baseDirectory;
   unreadDirectories = [answers.baseDirectory]; //Start off with one directory to search
   deletionTypes = answers.deletionTypes;
-
-
-
-
-  // console.log(deletionTypes);
-  
-
 
 
   let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
   console.time(labelSearchTime);
   while (unreadDirectories.length) {
-    console.log(`Reading directory ${unreadDirectories[0]}. ${unreadDirectories.length} discovered, unsearched director${unreadDirectories.length == 1 ? "y" : "ies"} remaining`);
+    let dir = unreadDirectories[0];
+
+    // console.log(`Reading directory ${dir}. ${unreadDirectories.length} discovered, unsearched director${unreadDirectories.length == 1 ? "y" : "ies"} remaining`);
+    process.stdout.write(`Number of discovered but unsearched directories remaining: ${unreadDirectories.length}${((unreadDirectories.length + 1).toString().length - (unreadDirectories.length).toString().length)?" ": ""}\r`); //Won't write a new line every time. Adds a space if the number of digits of the number changes
+
     let files = [];
-    fs.readdirSync(unreadDirectories[0]).forEach(p => {
-      p = path.join(unreadDirectories[0], p);
+
+    fs.readdirSync(dir).forEach(p => {
+      p = path.join(dir, p);
       if (fs.statSync(p).isDirectory() && !p.endsWith(".lrdata")) {
         //lrdata has a lot of directories, so avoid scanning those
         unreadDirectories.push(p);
@@ -148,24 +155,33 @@ inquirer.prompt([
     });
     unreadDirectories.splice(0, 1); //Remove the scanned directory
   
-    findFilesToDelete(files); //look at the files in that directory and search for those that need to be deleted.
+    let deletions = findFilesToDelete(files); //look at the files in that directory and search for those that need to be deleted.
+
+    if (deletions.xmpDelete || deletions.rawDelete) {
+      deletions.directory = dir;
+      overviewOfDeletions.push(deletions);
+    }
   }
+
+  console.timeEnd(labelSearchTime);
   
-  console.log(`
+
+  let nRAW, nRAWD, nXMP, nXMPD;
+  nRAW = nRAWD = nXMP = nXMPD = 0;
+  console.log(`\n\nDeleting from the following directories:`);
+  console.log(`| Directory name | No. RAW | No. RAW to delete | No. XMP | No. XMP to delete |`);
+  overviewOfDeletions.forEach(obj => {
+    console.log(`| ${path.relative(baseDirectory, obj.directory)} | ${obj.raw} | ${obj.rawDelete} | ${obj.xmp} | ${obj.xmpDelete} |`);
+    nRAW += obj.raw; nRAWD += obj.rawDelete; nXMP += obj.xmp; nXMPD += obj.xmpDelete;
+  });
+  console.log(`| Total | ${nRAW} | ${nRAWD} | ${nXMP} | ${nXMPD} |`);
+  console.log("\n\n");
+
   
-  Total of ${filterByExtension(allFiles, rawExt).length} RAW files found, ${filterByExtension(filesToDelete, rawExt).length} marked for deletion.
-  Total of ${filterByExtension(allFiles, xmpExt).length} XMP files found, ${filterByExtension(filesToDelete, xmpExt).length} marked for deletion.
-  
-  `);
+  console.log(`Total of ${filterByExtension(allFiles, rawExt).length} RAW files found, ${filterByExtension(filesToDelete, rawExt).length} marked for deletion.`);
+  console.log(`Total of ${filterByExtension(allFiles, xmpExt).length} XMP files found, ${filterByExtension(filesToDelete, xmpExt).length} marked for deletion.`);
 
-
-
-
-  // console.log(filesToDelete);
-
-
-
-
+  // console.log(JSON.stringify(filesToDelete));
 
   console.time(labelSumFileSizes);
   let sum = findTotalFileSize();
@@ -194,6 +210,9 @@ inquirer.prompt([
     if (answers.toTrash) {
       trash(filesToDelete).then(() => {
         console.log(`${filesToDelete.length} files sent to trash`);
+      }).catch(err => {
+        console.log(`Error deleting files`);
+        console.log(err);
       })
     }
     else {
@@ -206,3 +225,4 @@ inquirer.prompt([
 
   else console.log("Deletion cancelled");
 });
+
