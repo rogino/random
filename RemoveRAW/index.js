@@ -4,7 +4,6 @@ This may fail on systems with case-sensitive file systems
 */
 
 
-
 let fs = require("fs");
 let path = require("path");
 let inquirer = require("inquirer");
@@ -88,7 +87,8 @@ let findFilesToDelete = files => {
     raw: raw.length,
     rawDelete: numRAWToDelete,
     xmp: xmp.size,
-    xmpDelete: numXMPToDelete 
+    xmpDelete: numXMPToDelete,
+    jpeg: jpg.size + jpeg.size
   };
 }
 
@@ -166,16 +166,17 @@ inquirer.prompt([
   console.timeEnd(labelSearchTime);
   
 
-  let nRAW, nRAWD, nXMP, nXMPD;
-  nRAW = nRAWD = nXMP = nXMPD = 0;
+  let nRAW, nRAWD, nXMP, nXMPD, nJPEG;
+  nRAW = nRAWD = nXMP = nXMPD = nJPEG = 0;
   console.log(`\n\nDeleting from the following directories:`);
-  console.log(`| Directory name | No. RAW | No. RAW to delete | No. XMP | No. XMP to delete |`);
+  let str = `| Directory name | No. RAW | No. RAW to delete | No. XMP | No. XMP to delete | No. JPG/JPEG |\n`;
   overviewOfDeletions.forEach(obj => {
-    console.log(`| ${path.relative(baseDirectory, obj.directory)} | ${obj.raw} | ${obj.rawDelete} | ${obj.xmp} | ${obj.xmpDelete} |`);
-    nRAW += obj.raw; nRAWD += obj.rawDelete; nXMP += obj.xmp; nXMPD += obj.xmpDelete;
+    str += `| ${path.relative(baseDirectory, obj.directory)} | ${obj.raw} | ${obj.rawDelete} | ${obj.xmp} | ${obj.xmpDelete} | ${obj.jpeg} |\n`;
+    nRAW += obj.raw; nRAWD += obj.rawDelete; nXMP += obj.xmp; nXMPD += obj.xmpDelete; nJPEG += obj.jpeg;
   });
-  console.log(`| Total | ${nRAW} | ${nRAWD} | ${nXMP} | ${nXMPD} |`);
-  console.log("\n\n");
+  str += `| Total | ${nRAW} | ${nRAWD} | ${nXMP} | ${nXMPD} | ${nJPEG} |\n`;
+  str += `\n\n`;
+  console.log(str);
 
   
   console.log(`Total of ${filterByExtension(allFiles, rawExt).length} RAW files found, ${filterByExtension(filesToDelete, rawExt).length} marked for deletion.`);
@@ -213,6 +214,8 @@ inquirer.prompt([
       }).catch(err => {
         console.log(`Error deleting files`);
         console.log(err);
+
+        fs.writeFileSync("./stuff.txt", filesToDelete.reduce((prev, curr) => prev + `\ndel ${path.resolve(curr)}`, ""));
       })
     }
     else {
@@ -225,4 +228,3 @@ inquirer.prompt([
 
   else console.log("Deletion cancelled");
 });
-
