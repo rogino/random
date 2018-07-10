@@ -1,0 +1,16 @@
+{
+  "name": "delete-raw",
+  "version": "0.9.0",
+  "description": "Deletes RAW files that don't have associated XMP and/or JPEG files (useful for Lightroom use)",
+  "main": "index.js",
+  "dependencies": {
+    "inquirer": "^6.0.0",
+    "trash": "^4.3.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
