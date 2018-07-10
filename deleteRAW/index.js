@@ -148,10 +148,20 @@ inquirer.prompt([
 
   let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
   console.time(labelSearchTime);
+  let lenStr = 0;
   while (unreadDirectories.length) {
     let dir = unreadDirectories[0];
+    let str = `Discovered, unsearched directories: ${unreadDirectories.length}. Scanning ${dir}`;
+    if (lenStr != 0 && str.length < lenStr) {
+      let numSpaces = lenStr - str.length;
+      while(--numSpaces >= 0) {
+        str += " ";
+      }
+    }
+    lenStr = str.length;
+    str += "\r";
+    process.stdout.write(str); //Won't write a new line every time.
 
-    process.stdout.write(`Number of discovered but unsearched directories remaining: ${unreadDirectories.length}${((unreadDirectories.length + 1).toString().length - (unreadDirectories.length).toString().length)?" ": ""}\r`); //Won't write a new line every time. Adds a space if the number of digits of the number increases changes
 
     let files = [];
 
@@ -199,11 +209,11 @@ inquirer.prompt([
       overviewOfDeletions.push(deletions); //Only add to overview if relevant files are found
     }
   }
-  console.log(); //Add newline as the sdout doesn't
+  console.log("\n\n"); //Add newline as the sdout doesn't
   console.timeEnd(labelSearchTime);
   
 
-  console.log(`\n\nDeleting from the following directories:`);
+  console.log(`\nDeleting from the following directories:`);
 
   let nRAW, nRAWD, nXMP, nXMPD, nJPEG;
   nRAW = nRAWD = nXMP = nXMPD = nJPEG = 0;
