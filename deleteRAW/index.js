@@ -112,7 +112,18 @@ let determineIfFileShouldBeDeleted = flattenedTree => {
 }
 
 let scanForRelevantFiles = dir => {
+  let strLen = 0;
   let recursiveScan = (dir, depth = 0) => {
+    let str = `Searching ${dir}`;
+    let diff = str.length - strLen; //\r means overwriting so add spaces if the string gets shorter
+    if (strLen != 0 && diff > 0) {
+      while(diff-- >= 0) {
+        str += " ";
+      }
+    }
+    strLen = str.length;
+    process.stdout.write(str + "\r");
+
     let ignoreDir = [/\.lrdata$/];
     let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
     let promises = [];
@@ -154,6 +165,7 @@ let scanForRelevantFiles = dir => {
   }
 
   return recursiveScan(path.normalize(dir)).then(arr => {
+    console.log("\n\n"); //Get past the \r
     //Array of either objects (path, size), subarray (results from recursive calls), null (failed), or string (directory name);
     //Converts the nested arrays into an array of arrays
     let flatten = (arr, depth = 0) => {
@@ -221,12 +233,13 @@ inquirer.prompt([
   console.time(labelSearchTime);
   return scanForRelevantFiles(baseDirectory);
 }).then(relevantFiles => {
+  console.timeEnd(labelSearchTime);
+
   relevantFiles.forEach(directory => {
     overviewOfDeletions.push(determineIfFileShouldBeDeleted(directory)); //look at the files in that directory and search for those that need to be deleted.
   });
 
-  console.timeEnd(labelSearchTime);
-
+  
 
   console.log(`\nDeleting from the following directories:`);
 
