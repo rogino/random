@@ -11,7 +11,7 @@ const inquirer = require("inquirer");
 const trash = require("trash");
 const { table } = require("table");
 
-const rawExt = ".CR2";
+const rawExt = ".cr2";
 const jpgExt = ".jpg";
 const jpegExt = ".jpeg";
 const xmpExt = ".xmp";
