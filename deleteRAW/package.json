@@ -4,9 +4,10 @@
   "description": "Deletes RAW files that don't have associated XMP and/or JPEG files (useful for Lightroom use)",
   "main": "index.js",
   "dependencies": {
+    "fs-extra": "^6.0.1",
     "inquirer": "^6.0.0",
-    "trash": "^4.3.0",
-    "table": "^4.0.3"
+    "table": "^4.0.3",
+    "trash": "^4.3.0"
   },
   "devDependencies": {},
   "scripts": {

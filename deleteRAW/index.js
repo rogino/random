@@ -9,6 +9,7 @@ const path = require("path");
 
 const inquirer = require("inquirer");
 const trash = require("trash");
+const fse = require("fs-extra");
 const {table} = require("table");
 
 const rawExt = ".cr2";
@@ -22,7 +23,7 @@ let filesToDelete, allFiles, unreadDirectories, baseDirectory, deletionTypes;
 filesToDelete = [];
 allFiles = [];
 
-let overviewOfDeletions = []; //Array of objects with directory name, number of XMP and number RAW files to be deleted
+let overviewOfDeletions = {}; //Array of objects with directory name, number of XMP and number RAW files to be deleted
 
 
 const labelSearchTime = "Time-taken-to-search-through-directory";
@@ -147,10 +148,49 @@ inquirer.prompt([
 
 
   let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
-  console.time(labelSearchTime);
+
+  let numCompletedScans = 0; //
+  let numFoundDirectories = 1;
   let lenStr = 0;
+  console.time(labelSearchTime);
+
+  let promiseDir = [];
+
+  let func = dir => {
+    let ignoreDir = [/\.lrdata$/];
+    return fse.readdir(dir).then(contents => {
+      let promiseFiles = [];
+      contents.forEach(p => {
+        p = path.join(dir, p);
+        promiseFiles.push(fse.stat(p).then(stats => {
+          if (stats.isDirectory() && !ignoreDir.some(reg => reg.test(p))) return func(p); //Recursively run for the subdirectory
+          else if (fileMatchesExtensionWhitelist(p, extensionWhitelist)) {
+            return Promise.resolve({
+              path: p,
+              size: stats.size
+            });
+          }
+        })).catch(err => {
+          console.log(`\nCould not read file ${p} due to error:`);
+          console.log(err);
+          return Promise.resolve(null)l
+        });
+
+        return Promise.all(promiseFiles).then(arr => {
+          //Array of either objects (path, size), subarray (was directory) or null (failed)
+          arr = arr.filter(thing => thing !== null);
+        });
+      });
+    }).catch(err => {
+      console.log(`\nCould not read directory ${dir} due to error:`);
+      console.log(err);
+      return Promise.resolve(null);
+    })
+
+  }
+
   while (unreadDirectories.length) {
-    let dir = unreadDirectories[0];
+    let dir = unreadDirectories.splice(0, 1)[0]; //Remove the scanned directory. Hopefully, async won't cause any problems with this
     let str = `Discovered, unsearched directories: ${unreadDirectories.length}. Scanning ${dir}`;
     if (lenStr != 0 && str.length < lenStr) {
       let numSpaces = lenStr - str.length;
@@ -165,42 +205,38 @@ inquirer.prompt([
 
     let files = [];
 
-    let scannedDir;
-    try {
-      scannedDir = fs.readdirSync(dir);
-    } catch(err) {
-      console.log(`\nCould not read directory ${dir} due to error:`);
-      console.log(err);
-      unreadDirectories.splice(0, 1); //Remove the scanned directory so it doens't infinite loop
-      return;
-    }
-
-    scannedDir.forEach(p => {
-      p = path.join(dir, p);
-      let stat;
-      try {
-        stat = fs.statSync(p);
-      } catch(err) {
-        console.log(`\nCould not read file ${p} due to error:`);
+    fs.readdir(dir, (err, contents) => {
+      if (err) {
+        console.log(`\nCould not read directory ${dir} due to error:`);
         console.log(err);
-        return; //Stop reading the file
+        return;
       }
+      contents.forEach(p => {
+        scannedDir.forEach(p => {
+          p = path.join(dir, p);
+          fs.stat(p, (err, stats) => {
+            if (err) {
+              console.log(`\nCould not read file ${p} due to error:`);
+              console.log(err);
+              return; //Stop reading the file
+            }
 
-      if (stat.isDirectory() && !p.endsWith(".lrdata")) {
-        //lrdata has a lot of directories, so avoid scanning those
-        unreadDirectories.push(p);
-      }
-      else {
-        if (fileMatchesExtensionWhitelist(p, extensionWhitelist)) {
-          files.push({
-            path: p,
-            size: stat.size
-          }); //Later, the size of the files will be totaled and since we already have that data, save it to the array
-        }
-      }
+            if (stat.isDirectory() && !p.endsWith(".lrdata")) {
+              //lrdata has a lot of directories, so avoid scanning those
+              unreadDirectories.push(p);
+            }
+            else if (fileMatchesExtensionWhitelist(p, extensionWhitelist)) {
+              let obj = {
+                path: p,
+                size: stat.size
+              }; //Later, the size of the files will be totaled and since we already have that data, save it to the array
+              allFiles.push(obj);
+            }
+          });
+        });
+      });
     });
-    unreadDirectories.splice(0, 1); //Remove the scanned directory
-    
+
     allFiles.push(...files); //Push to the global array
     let deletions = findFilesToDelete(files); //look at the files in that directory and search for those that need to be deleted.
 
