@@ -12,7 +12,7 @@ const trash = require("trash");
 const fse = require("fs-extra");
 const { table } = require("table");
 
-const rawExt = ".cr2";
+const rawExt = ".CR2";
 const jpgExt = ".jpg";
 const jpegExt = ".jpeg";
 const xmpExt = ".xmp";
@@ -23,7 +23,7 @@ let filesToDelete, allFiles, unreadDirectories, baseDirectory, deletionTypes;
 filesToDelete = [];
 allFiles = [];
 
-let overviewOfDeletions = {}; //Array of objects with directory name, number of XMP and number RAW files to be deleted
+let overviewOfDeletions = []; //Array of objects with directory name, number of XMP and number RAW files to be deleted
 
 
 const labelSearchTime = "Time-taken-to-search-through-directory";
@@ -55,10 +55,10 @@ let saveToTextFile = filesToDelete => {
 /** For an array of files, marks files for deletion
  * @return {object} object with number of files found for `raw`, `rawDelete`, `xmp`, `xmpDelete` and `jpeg`
 */
-let findFilesToDelete = files => {
+let determineIfFileShouldBeDeleted = flattenedTree => {
   let raw, jpg, jpeg, xmp;
   raw = []; jpg = []; jpeg = []; xmp = [];
-  files.forEach(obj => {
+  flattenedTree.files.forEach(obj => {
     switch (path.extname(obj.path)) {
       case rawExt:
         raw.push(obj);
@@ -79,13 +79,13 @@ let findFilesToDelete = files => {
   let numXMPToDelete = 0;
   raw.forEach(obj => {
     let jpgF = changeExtension(obj.path, jpgExt);
-    let jpgFound = jpg.has(jpgF);
+    let jpgFound = jpg.indexOf(jpgF) !== -1;
 
     let jpegF = changeExtension(obj.path, jpegExt);
-    let jpegFound = jpeg.has(jpegF);
+    let jpegFound = jpeg.indexOf(jpegF) !== -1;
 
     let xmpF = changeExtension(obj.path, xmpExt);
-    let xmpFound = xmp.has(xmpF);
+    let xmpFound = xmp.indexOf(xmpF) !== -1;
 
     let code = genCode(xmpFound, jpgFound || jpegFound);
 
@@ -102,6 +102,7 @@ let findFilesToDelete = files => {
   });
 
   return {
+    directory: flattenedTree.directory,
     raw: raw.length,
     rawDelete: numRAWToDelete,
     xmp: xmp.length,
@@ -110,8 +111,8 @@ let findFilesToDelete = files => {
   };
 }
 
-let recursiveScan = dir => {
-  let scan = (dir, depth = 0) => {
+let scanForRelevantFiles = dir => {
+  let recursiveScan = (dir, depth = 0) => {
     let ignoreDir = [/\.lrdata$/];
     let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
     let promises = [];
@@ -120,7 +121,7 @@ let recursiveScan = dir => {
       contents.forEach(p => {
         p = path.join(dir, p);
         promises.push(fse.stat(p).then(stats => {
-          if (stats.isDirectory() && !ignoreDir.some(reg => reg.test(p))) return scan(p, depth + 1); //Recursively run for the subdirectory
+          if (stats.isDirectory() && !ignoreDir.some(reg => reg.test(p))) return recursiveScan(p, depth + 1); //Recursively run for the subdirectory
           // else {
           else if (fileMatchesExtensionWhitelist(p, extensionWhitelist)) {
             return Promise.resolve({
@@ -152,7 +153,7 @@ let recursiveScan = dir => {
 
   }
 
-  return scan(path.normalize(dir)).then(arr => {
+  return recursiveScan(path.normalize(dir)).then(arr => {
     //Array of either objects (path, size), subarray (results from recursive calls), null (failed), or string (directory name);
     //Converts the nested arrays into an array of arrays
     let flatten = (arr, depth = 0) => {
@@ -182,183 +183,119 @@ let recursiveScan = dir => {
   });
 }
 
-recursiveScan("C:/Users/rioog/Pictures/").then(f => fs.writeFileSync("./output.json", JSON.stringify(f, null, 2)));
+
+console.log("This tool deletes RAW files that don't have associated XMP sidecar files of the same name in the same directory");
+inquirer.prompt([
+  {
+    type: "input",
+    name: "baseDirectory",
+    message: "Enter directory to search",
+    validate: dir => fs.existsSync(dir)?true: "Could not find the given directory"
+  },
+  {
+    type: "checkbox",
+    name: "deletionTypes",
+    message: "Delete RAW and XMP files on the following cases",
+    choices: [{
+      name: "RAW only",
+      value: genCode(0,0),
+      checked: true
+    }, {
+      name: "RAW and XMP but no JPEG",
+      value: genCode(1,0),
+      checked: false
+    }, {
+      name: "RAW, XMP and JPEG files all exist",
+      value: genCode(1,1),
+      checked: false
+    }, {
+      name: "RAW and JPG but no XMP",
+      value: genCode(0,1),
+      checked: false
+    }]
+  }
+]).then(answers => {
+  baseDirectory = answers.baseDirectory;
+  deletionTypes = answers.deletionTypes;
+
+  console.time(labelSearchTime);
+  return scanForRelevantFiles(baseDirectory);
+}).then(relevantFiles => {
+  relevantFiles.forEach(directory => {
+    overviewOfDeletions.push(determineIfFileShouldBeDeleted(directory)); //look at the files in that directory and search for those that need to be deleted.
+  });
+
+  console.timeEnd(labelSearchTime);
 
 
-// console.log("This tool deletes RAW files that don't have associated XMP sidecar files of the same name in the same directory");
-// inquirer.prompt([
-//   {
-//     type: "input",
-//     name: "baseDirectory",
-//     message: "Enter directory to search",
-//     validate: dir => fs.existsSync(dir)?true: "Could not find the given directory"
-//   },
-//   {
-//     type: "checkbox",
-//     name: "deletionTypes",
-//     message: "Delete RAW and XMP files on the following cases",
-//     choices: [{
-//       name: "RAW only",
-//       value: genCode(0,0),
-//       checked: true
-//     }, {
-//       name: "RAW and XMP but no JPEG",
-//       value: genCode(1,0),
-//       checked: false
-//     }, {
-//       name: "RAW, XMP and JPEG files all exist",
-//       value: genCode(1,1),
-//       checked: false
-//     }, {
-//       name: "RAW and JPG but no XMP",
-//       value: genCode(0,1),
-//       checked: false
-//     }]
-//   }
-// ]).then(answers => {
-//   baseDirectory = answers.baseDirectory;
-//   unreadDirectories = [answers.baseDirectory]; //Start off with one directory to search
-//   deletionTypes = answers.deletionTypes;
+  console.log(`\nDeleting from the following directories:`);
+
+  let nRAW, nRAWD, nXMP, nXMPD, nJPEG;
+  nRAW = nRAWD = nXMP = nXMPD = nJPEG = 0;
+  let arr = [];
+  arr.push(["Directory", "No. RAW", "No. RAW delete", "No. XMP", "No. XMP delete", "No. JPEG"]);
+
+  overviewOfDeletions.forEach(obj => {
+    arr.push([path.relative(baseDirectory, obj.directory), obj.raw, obj.rawDelete, obj.xmp, obj.xmpDelete, obj.jpeg]);
+    nRAW += obj.raw; nRAWD += obj.rawDelete; nXMP += obj.xmp; nXMPD += obj.xmpDelete; nJPEG += obj.jpeg;
+  });
+
+  arr.push(["Total", nRAW, nRAWD, nXMP, nXMPD, nJPEG]);
+
+  console.log(table(arr)); //Print out the data as a nice table
 
 
-//   let extensionWhitelist = [rawExt, jpgExt, jpegExt, xmpExt];
+  console.log(`Total of ${filterByExtension(allFiles, rawExt).length} RAW files found, ${filterByExtension(filesToDelete, rawExt).length} marked for deletion.`);
+  console.log(`Total of ${filterByExtension(allFiles, xmpExt).length} XMP files found, ${filterByExtension(filesToDelete, xmpExt).length} marked for deletion.`);
 
-//   let numCompletedScans = 0; //
-//   let numFoundDirectories = 1;
-//   let lenStr = 0;
-//   console.time(labelSearchTime);
+  let spaceSaved = filesToDelete.reduce((sum, obj) => sum += obj.size, 0);
+  console.log(`Total size of all files marked for deletion: ${spaceSaved} bytes / ${Math.round(spaceSaved / 1024)}KB / ${Math.round(spaceSaved / (Math.pow(1024, 2)))}MB / ${Math.round(spaceSaved / (Math.pow(1024, 3)))}GB`);
 
-//   let promiseDir = [];
+}).then(() => inquirer.prompt([
+  {
+    type: "list",
+    name: "toTrash",
+    message: "Send to trash or delete?",
+    choices: [{
+      name: "Trash",
+      value: true
+    },
+    {
+      name: "Delete permanently",
+      value: false
+    }]
+  },{
+  type: "confirm",
+  message: `Really delete ${filesToDelete.length} files?`,
+  name: "reallyDelete"
+}])).then(answers => {
+  if (answers.reallyDelete) {
+    if (answers.toTrash) {
+      trash(filesToDelete.map(obj => obj.path)).then(() => {
+        console.log(`${filesToDelete.length} files sent to trash`);
+      }).catch(err => {
+        console.log(`Error deleting files`);
+        console.log(err);
 
+        saveToTextFile(filesToDelete);
+      })
+    }
+    else {
+      let failed = [];
+      filesToDelete.forEach(obj => {
+          try {
+            fs.unlinkSync(obj.path);
+          }
+          catch(err) {
+            console.log(`Failed to delete ${obj.path}`);
+            failed.push(obj);
+          }
+      });
+      console.log(`${filesToDelete.length - failed.length} files deleted`);
+      console.log(`Failed files saved to text file`);
+      saveToTextFile(failed);
+    }
+  }
 
-//   while (unreadDirectories.length) {
-//     let dir = unreadDirectories.splice(0, 1)[0]; //Remove the scanned directory. Hopefully, async won't cause any problems with this
-//     let str = `Discovered, unsearched directories: ${unreadDirectories.length}. Scanning ${dir}`;
-//     if (lenStr != 0 && str.length < lenStr) {
-//       let numSpaces = lenStr - str.length;
-//       while(--numSpaces >= 0) {
-//         str += " ";
-//       }
-//     }
-//     lenStr = str.length;
-//     str += "\r";
-//     process.stdout.write(str); //Won't write a new line every time.
-
-
-//     let files = [];
-
-//     fs.readdir(dir, (err, contents) => {
-//       if (err) {
-//         console.log(`\nCould not read directory ${dir} due to error:`);
-//         console.log(err);
-//         return;
-//       }
-//       contents.forEach(p => {
-//         scannedDir.forEach(p => {
-//           p = path.join(dir, p);
-//           fs.stat(p, (err, stats) => {
-//             if (err) {
-//               console.log(`\nCould not read file ${p} due to error:`);
-//               console.log(err);
-//               return; //Stop reading the file
-//             }
-
-//             if (stat.isDirectory() && !p.endsWith(".lrdata")) {
-//               //lrdata has a lot of directories, so avoid scanning those
-//               unreadDirectories.push(p);
-//             }
-//             else if (fileMatchesExtensionWhitelist(p, extensionWhitelist)) {
-//               let obj = {
-//                 path: p,
-//                 size: stat.size
-//               }; //Later, the size of the files will be totaled and since we already have that data, save it to the array
-//               allFiles.push(obj);
-//             }
-//           });
-//         });
-//       });
-//     });
-
-//     allFiles.push(...files); //Push to the global array
-//     let deletions = findFilesToDelete(files); //look at the files in that directory and search for those that need to be deleted.
-
-//     if (deletions.xmp || deletions.raw) {
-//       deletions.directory = dir;
-//       overviewOfDeletions.push(deletions); //Only add to overview if relevant files are found
-//     }
-//   }
-//   console.log("\n\n"); //Add newline as the sdout doesn't
-//   console.timeEnd(labelSearchTime);
-
-
-//   console.log(`\nDeleting from the following directories:`);
-
-//   let nRAW, nRAWD, nXMP, nXMPD, nJPEG;
-//   nRAW = nRAWD = nXMP = nXMPD = nJPEG = 0;
-//   let arr = [];
-//   arr.push(["Directory", "No. RAW", "No. RAW delete", "No. XMP", "No. XMP delete", "No. JPEG"]);
-
-//   overviewOfDeletions.forEach(obj => {
-//     arr.push([path.relative(baseDirectory, obj.directory), obj.raw, obj.rawDelete, obj.xmp, obj.xmpDelete, obj.jpeg]);
-//     nRAW += obj.raw; nRAWD += obj.rawDelete; nXMP += obj.xmp; nXMPD += obj.xmpDelete; nJPEG += obj.jpeg;
-//   });
-
-//   arr.push(["Total", nRAW, nRAWD, nXMP, nXMPD, nJPEG]);
-
-//   console.log(table(arr)); //Print out the data as a nice table
-
-
-//   console.log(`Total of ${filterByExtension(allFiles, rawExt).length} RAW files found, ${filterByExtension(filesToDelete, rawExt).length} marked for deletion.`);
-//   console.log(`Total of ${filterByExtension(allFiles, xmpExt).length} XMP files found, ${filterByExtension(filesToDelete, xmpExt).length} marked for deletion.`);
-
-//   let spaceSaved = filesToDelete.reduce((sum, obj) => sum += obj.size, 0);
-//   console.log(`Total size of all files marked for deletion: ${spaceSaved} bytes / ${Math.round(spaceSaved / 1024)}KB / ${Math.round(spaceSaved / (Math.pow(1024, 2)))}MB / ${Math.round(spaceSaved / (Math.pow(1024, 3)))}GB`);
-
-// }).then(() => inquirer.prompt([
-//   {
-//     type: "list",
-//     name: "toTrash",
-//     message: "Send to trash or delete?",
-//     choices: [{
-//       name: "Trash",
-//       value: true
-//     },
-//     {
-//       name: "Delete permanently",
-//       value: false
-//     }]
-//   },{
-//   type: "confirm",
-//   message: `Really delete ${filesToDelete.length} files?`,
-//   name: "reallyDelete"
-// }])).then(answers => {
-//   if (answers.reallyDelete) {
-//     if (answers.toTrash) {
-//       trash(filesToDelete.map(obj => obj.path)).then(() => {
-//         console.log(`${filesToDelete.length} files sent to trash`);
-//       }).catch(err => {
-//         console.log(`Error deleting files`);
-//         console.log(err);
-
-//         saveToTextFile(filesToDelete);
-//       })
-//     }
-//     else {
-//       let failed = [];
-//       filesToDelete.forEach(obj => {
-//           try {
-//             fs.unlinkSync(obj.path);
-//           }
-//           catch(err) {
-//             console.log(`Failed to delete ${obj.path}`);
-//             failed.push(obj);
-//           }
-//       });
-//       console.log(`${filesToDelete.length - failed.length} files deleted`);
-//       console.log(`Failed files saved to text file`);
-//       saveToTextFile(failed);
-//     }
-//   }
-
-//   else console.log("Deletion cancelled");
-// });
+  else console.log("Deletion cancelled");
+});
