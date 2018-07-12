@@ -1,3 +1,6 @@
+let fse = require("fs-extra");
+let path = require("path");
+
 let fileMatchesExtensionWhitelist = (p, extArr) => {
   let ext = path.extname(p);
   return extArr.some(e => e == ext);
@@ -5,15 +8,16 @@ let fileMatchesExtensionWhitelist = (p, extArr) => {
 
 /**
  * @param {string} dir Directory to recursively scan
+ * @return {string[]} array of file paths
  */
-let recursiveScanAsync = (dir, depth = 0) => {
+let scan = (dir, depth = 0) => {
   let promises = [];
-
+  if (depth == 0) dir = path.normalize(dir);
   return fse.readdir(dir).then(contents => {
     contents.forEach(p => {
       p = path.join(dir, p);
       promises.push(fse.stat(p).then(stats => {
-        if (stats.isDirectory() && !directoryBlacklist.some(reg => reg.test(p))) return scan(p, depth + 1); //Recursively run for the subdirectory
+        if (stats.isDirectory()) return scan(p, depth + 1); //Recursively run for the subdirectory
         else return Promise.resolve(p);
       }).catch(err => {
         console.log(`\nCould not read file ${p} due to error:`);
@@ -36,5 +40,6 @@ let recursiveScanAsync = (dir, depth = 0) => {
     console.log(err);
     return Promise.resolve(null);
   });
-
 }
+
+module.exports = scan;
