@@ -34,13 +34,19 @@ const labelSearchTime = "Time-taken-to-search-through-directory";
  * @param {obj} arr Array of objects with properties `path` and `size` (bytes)
  * @param {string} ext Extension to filter for with a dot
  */
-let filterByExtension = (arr, ext) => arr.filter(obj => path.extname(obj.path) == ext);
+let filterByExtension = (arr, ext) => {
+  ext = ext.toLowerCase();
+  return arr.filter(obj => path.extname(obj.path).toLowerCase() == ext);
+}
 
 //Changes the extension of a file. Extension must start with period
 let changeExtension = (p, ext) => path.join(path.dirname(p), path.basename(p, path.extname(p)) + ext);
 
+let lowercaseExtension = p => path.join(path.dirname(p), path.basename(p, path.extname(p)) + path.extname(p).toLowerCase());
+
 let fileMatchesExtensionWhitelist = (p, extArr) => {
-  let ext = path.extname(p);
+  let ext = path.extname(p).toLowerCase();
+  extArr = extArr.map(e => e.toLowerCase());
   return extArr.some(e => e == ext);
 }
 
@@ -77,15 +83,19 @@ let determineIfFileShouldBeDeleted = flattenedTree => {
 
   let numRAWToDelete = 0;
   let numXMPToDelete = 0;
+  
+  let found = (p, arr) => arr.some(f => lowercaseExtension(f.path) == lowercaseExtension(p));
+
   raw.forEach(obj => {
     let jpgF = changeExtension(obj.path, jpgExt);
-    let jpgFound = jpg.indexOf(jpgF) !== -1;
+    let jpgFound = found(jpgF, jpg);
 
     let jpegF = changeExtension(obj.path, jpegExt);
-    let jpegFound = jpeg.indexOf(jpegF) !== -1;
+    let jpegFound = found(jpegF, jpeg);
+
 
     let xmpF = changeExtension(obj.path, xmpExt);
-    let xmpFound = xmp.indexOf(xmpF) !== -1;
+    let xmpFound = found(xmpF, xmp);
 
     let code = genCode(xmpFound, jpgFound || jpegFound);
 
@@ -117,8 +127,8 @@ let scanForRelevantFiles = dir => {
     let str = `Searching ${dir}`;
     let diff = str.length - strLen; //\r means overwriting so add spaces if the string gets shorter
     if (strLen != 0 && diff > 0) {
-      while(diff-- >= 0) {
-        str += " ";
+      while(--diff >= 0) {
+        str += " "; //If string gets shorter, add space to overwrite
       }
     }
     strLen = str.length;
@@ -234,7 +244,7 @@ inquirer.prompt([
   return scanForRelevantFiles(baseDirectory);
 }).then(relevantFiles => {
   console.timeEnd(labelSearchTime);
-
+  
   relevantFiles.forEach(directory => {
     overviewOfDeletions.push(determineIfFileShouldBeDeleted(directory)); //look at the files in that directory and search for those that need to be deleted.
   });
@@ -249,6 +259,8 @@ inquirer.prompt([
   arr.push(["Directory", "No. RAW", "No. RAW delete", "No. XMP", "No. XMP delete", "No. JPEG"]);
 
   overviewOfDeletions.forEach(obj => {
+    let dirStr = path.relative(baseDirectory, obj.directory);
+    if (dirStr == "") dirStr = "." + path.sep; //If empty, means it is the base directory
     arr.push([path.relative(baseDirectory, obj.directory), obj.raw, obj.rawDelete, obj.xmp, obj.xmpDelete, obj.jpeg]);
     nRAW += obj.raw; nRAWD += obj.rawDelete; nXMP += obj.xmp; nXMPD += obj.xmpDelete; nJPEG += obj.jpeg;
   });
@@ -258,8 +270,8 @@ inquirer.prompt([
   console.log(table(arr)); //Print out the data as a nice table
 
 
-  console.log(`Total of ${filterByExtension(allFiles, rawExt).length} RAW files found, ${filterByExtension(filesToDelete, rawExt).length} marked for deletion.`);
-  console.log(`Total of ${filterByExtension(allFiles, xmpExt).length} XMP files found, ${filterByExtension(filesToDelete, xmpExt).length} marked for deletion.`);
+  console.log(`Total of ${nRAW} RAW files found, ${nRAWD} marked for deletion.`);
+  console.log(`Total of ${nXMP} XMP files found, ${nXMPD} marked for deletion.`);
 
   let spaceSaved = filesToDelete.reduce((sum, obj) => sum += obj.size, 0);
   console.log(`Total size of all files marked for deletion: ${spaceSaved} bytes / ${Math.round(spaceSaved / 1024)}KB / ${Math.round(spaceSaved / (Math.pow(1024, 2)))}MB / ${Math.round(spaceSaved / (Math.pow(1024, 3)))}GB`);
